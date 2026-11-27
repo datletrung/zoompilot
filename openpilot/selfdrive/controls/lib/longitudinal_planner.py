@@ -138,7 +138,8 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     output_a_target, stop_estimated = self.planned_stop_braking.update(
       sm['modelV2'], v_ego, sm['modelV2'].action.desiredAcceleration, output_a_target,
       self.params.get_bool("PlannedStopBraking"), self.CP.openpilotLongitudinalControl,
-      sm['radarState'].leadOne.present or sm['radarState'].leadTwo.present)
+      sm['radarState'].leadOne.present or sm['radarState'].leadTwo.present,
+      self.params.get("PlannedStopBrakingProfile", return_default=True))
     if stop_estimated:
       if output_a_target < planner_a_target:
         self.mpc.source = LongitudinalPlanSource.e2e

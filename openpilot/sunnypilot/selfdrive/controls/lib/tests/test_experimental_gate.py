@@ -17,7 +17,7 @@ from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.longcontrol import LongCtrlState
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner, LongitudinalPlanSource
-from openpilot.sunnypilot.selfdrive.controls.lib.planned_stop_braking import PlannedStopBraking
+from openpilot.sunnypilot.selfdrive.controls.lib.planned_stop_braking import PlannedStopBraking, PROFILE_SPORTY
 
 V_EGO = 20.0
 E2E_ACCEL = -3.0  # low enough that e2e wins the min() whenever it is a candidate
@@ -116,8 +116,14 @@ class TestExperimentalGate(OpenpilotTestCase):
     v_ego = 85.0 / 3.6
     planner = build_planner()
     monkeypatch.setattr(planner.params, "get_bool", lambda key: key == "PlannedStopBraking")
+    original_get = planner.params.get
+    monkeypatch.setattr(planner.params, "get",
+                        lambda key, **kwargs: PROFILE_SPORTY if key == "PlannedStopBrakingProfile"
+                        else original_get(key, **kwargs))
     sm = build_sm()
     actuator_delay = planner.CP.longitudinalActuatorDelay
+    # this test plant has pure dead time and no response lag, so drop the lag term for it
+    planner.planned_stop_braking.actuator_delay = actuator_delay
     stop_line_distance = v_ego * actuator_delay + v_ego ** 2 / (2.0 * abs(ACCEL_MIN)) + 1.0
     distance_travelled = 0.0
     speed = v_ego
@@ -185,7 +191,7 @@ class TestExperimentalGate(OpenpilotTestCase):
     planned_stop = PlannedStopBraking(actuator_delay=0.2)
 
     adjusted, inferred_stop = planned_stop.update(
-      model, v_ego, model.action.desiredAcceleration, -1.0, True, True, False)
+      model, v_ego, model.action.desiredAcceleration, -1.0, True, True, False, PROFILE_SPORTY)
 
     assert inferred_stop
     assert adjusted == pytest.approx(ACCEL_MIN)

@@ -37,11 +37,28 @@ sections:
     widget: toggle
     needs_onroad_cycle: true
     title: Planned Stop Braking (Experimental)
-    description: Use a sustained near-zero speed in the model's predicted trajectory as an approximate stop-line position. Request enough deceleration to stop 1 m before that point, never less braking than the model requests, and cap at the vehicle acceleration limit. The model trajectory is not a measured stop line; driver supervision remains required.
+    description: Use a sustained near-zero speed in the model's predicted trajectory as an approximate stop-line position and brake harder to stop short of it, never less braking than the model requests. The profile sets how hard it may brake and how far short of that point it aims. The model trajectory is not a measured stop line; driver supervision remains required.
     visibility:
     - $ref: '#/macros/longitudinal'
     enablement:
     - $ref: '#/macros/longitudinal'
+  - key: PlannedStopBrakingProfile
+    widget: multiple_button
+    needs_onroad_cycle: true
+    title: Planned Stop Braking Profile
+    options:
+    - value: 0
+      label: Gentle
+    - value: 1
+      label: Normal
+    - value: 2
+      label: Sporty
+    visibility:
+    - $ref: '#/macros/longitudinal'
+    enablement:
+    - type: param
+      key: PlannedStopBraking
+      equals: true
 - id: core_cruise_features
   title: ''
   description: ''
