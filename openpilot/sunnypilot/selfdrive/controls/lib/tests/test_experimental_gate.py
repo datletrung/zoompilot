@@ -11,10 +11,13 @@ import pytest
 
 from openpilot.cereal import custom, messaging
 from opendbc.car import structs
-from opendbc.car.interfaces import ACCEL_MAX
+from opendbc.car.interfaces import ACCEL_MAX, ACCEL_MIN
 from openpilot.common.test import OpenpilotTestCase
+from openpilot.common.realtime import DT_MDL
+from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.longcontrol import LongCtrlState
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner, LongitudinalPlanSource
+from openpilot.sunnypilot.selfdrive.controls.lib.planned_stop_braking import PlannedStopBraking
 
 V_EGO = 20.0
 E2E_ACCEL = -3.0  # low enough that e2e wins the min() whenever it is a candidate
@@ -108,3 +111,93 @@ class TestExperimentalGate(OpenpilotTestCase):
     planner.e2e_set_speed.update = lambda *args: seen.append(args[-1]) or update(*args)
     planner.update(sm)
     assert seen == [pytest.approx(0.002 * V_EGO ** 2)]
+
+  def test_planned_stop_braking_targets_one_meter_before_inferred_stop(self, monkeypatch):
+    v_ego = 85.0 / 3.6
+    planner = build_planner()
+    monkeypatch.setattr(planner.params, "get_bool", lambda key: key == "PlannedStopBraking")
+    sm = build_sm()
+    actuator_delay = planner.CP.longitudinalActuatorDelay
+    stop_line_distance = v_ego * actuator_delay + v_ego ** 2 / (2.0 * abs(ACCEL_MIN)) + 1.0
+    distance_travelled = 0.0
+    speed = v_ego
+    measured_accel = 0.0
+    commands = []
+    delay_frames = round(actuator_delay / DT_MDL)
+
+    for frame in range(500):
+      car_state = sm["carState"].as_builder()
+      car_state.vEgo = speed
+      car_state.aEgo = measured_accel
+      car_state.vCruise = 110.0
+      car_state.vCruiseCluster = 110.0
+      sm["carState"] = car_state.as_reader()
+
+      distance_to_line = stop_line_distance - distance_travelled
+      predicted_decel_distance = max(0.01, distance_to_line - speed * actuator_delay)
+      predicted_decel = -(speed ** 2) / (2.0 * predicted_decel_distance)
+      stop_time = speed / abs(predicted_decel)
+      model = sm["modelV2"].as_builder()
+      predicted_x = []
+      predicted_v = []
+      for t in ModelConstants.T_IDXS:
+        if t <= actuator_delay:
+          predicted_x.append(speed * t)
+          predicted_v.append(speed)
+        else:
+          brake_time = min(t - actuator_delay, stop_time)
+          predicted_x.append(min(speed * actuator_delay + speed * brake_time +
+                                 0.5 * predicted_decel * brake_time ** 2, distance_to_line))
+          predicted_v.append(max(0.0, speed + predicted_decel * brake_time))
+      model.position.x = predicted_x
+      model.velocity.x = predicted_v
+      model.action.desiredAcceleration = -0.5
+      model.action.shouldStop = False
+      sm["modelV2"] = model.as_reader()
+
+      planner.update(sm)
+      command = float(planner.output_a_target)
+      commands.append(command)
+      if frame == 0:
+        assert command == pytest.approx(ACCEL_MIN)
+
+      applied_accel = commands[frame - delay_frames] if frame >= delay_frames else 0.0
+      if speed > 0.0 and applied_accel < 0.0 and speed + applied_accel * DT_MDL < 0.0:
+        stop_time = speed / -applied_accel
+        distance_travelled += speed * stop_time + 0.5 * applied_accel * stop_time ** 2
+        speed = 0.0
+        break
+
+      distance_travelled += speed * DT_MDL + 0.5 * applied_accel * DT_MDL ** 2
+      speed = max(0.0, speed + applied_accel * DT_MDL)
+      measured_accel = applied_accel
+
+    assert speed == 0.0
+    assert stop_line_distance - distance_travelled == pytest.approx(1.0, abs=0.1)
+    assert not planner.output_should_stop
+
+  def test_late_stop_request_is_capped_and_existing_braking_is_preserved(self):
+    v_ego = 85.0 / 3.6
+    model = messaging.new_message("modelV2").modelV2
+    model.position.x = [min(5.0, 5.0 * i / 24) for i in range(33)]
+    model.velocity.x = [max(0.0, v_ego * (1.0 - i / 24)) for i in range(33)]
+    model.action.desiredAcceleration = -0.5
+    planned_stop = PlannedStopBraking(actuator_delay=0.2)
+
+    adjusted, inferred_stop = planned_stop.update(
+      model, v_ego, model.action.desiredAcceleration, -1.0, True, True, False)
+
+    assert inferred_stop
+    assert adjusted == pytest.approx(ACCEL_MIN)
+
+  def test_planned_stop_braking_is_inactive_when_disabled_or_a_lead_is_present(self):
+    v_ego = 20.0
+    model = messaging.new_message("modelV2").modelV2
+    model.position.x = [float(i) for i in range(33)]
+    model.velocity.x = [max(0.0, v_ego - i) for i in range(33)]
+    planned_stop = PlannedStopBraking(actuator_delay=0.2)
+
+    for enabled, has_lead in ((False, False), (True, True)):
+      adjusted, inferred_stop = planned_stop.update(model, v_ego, -0.5, -0.8, enabled, True, has_lead)
+      assert adjusted == pytest.approx(-0.8)
+      assert not inferred_stop

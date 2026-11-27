@@ -13,6 +13,7 @@ from openpilot.cereal import messaging, custom
 from opendbc.car import structs
 from opendbc.car.interfaces import ACCEL_MAX
 from openpilot.common.constants import CV
+from openpilot.common.params import Params
 from openpilot.common.realtime import DT_MDL
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX
@@ -31,6 +32,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist_
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_resolver import SpeedLimitResolver
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
 from openpilot.sunnypilot.models.helpers import get_active_bundle
+from openpilot.sunnypilot.selfdrive.controls.lib.planned_stop_braking import PlannedStopBraking
 
 LongitudinalPlanSource = custom.LongitudinalPlanSP.LongitudinalPlanSource
 SCC_SOURCES = (LongitudinalPlanSource.sccVision, LongitudinalPlanSource.sccMap)
@@ -60,6 +62,8 @@ class LongitudinalPlannerSP:
     self.sla_machine = SpeedLimitAssistZP(CP, CP_SP) if pcm_machine_owns_sla(CP, icbm_active=False) else None
     self.sla_mirror = SpeedLimitAssistMirror(CP, CP_SP)
     self.sla = self._sla_owner(not CP_SP.pcmCruiseSpeed)
+    self.params = Params()
+    self.planned_stop_braking = PlannedStopBraking(CP.longitudinalActuatorDelay)
     self.generation = int(model_bundle.generation) if (model_bundle := get_active_bundle()) else None
     self.source = LongitudinalPlanSource.cruise
     self.e2e_alerts_helper = E2EAlertsHelper()

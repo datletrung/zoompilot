@@ -134,6 +134,14 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
 
     output_a_target, self.mpc.source, _ = min(candidates, key=lambda c: c[0])
     self.output_should_stop = any(should_stop for _, _, should_stop in candidates)
+    planner_a_target = output_a_target
+    output_a_target, stop_estimated = self.planned_stop_braking.update(
+      sm['modelV2'], v_ego, sm['modelV2'].action.desiredAcceleration, output_a_target,
+      self.params.get_bool("PlannedStopBraking"), self.CP.openpilotLongitudinalControl,
+      sm['radarState'].leadOne.present or sm['radarState'].leadTwo.present)
+    if stop_estimated:
+      if output_a_target < planner_a_target:
+        self.mpc.source = LongitudinalPlanSource.e2e
     self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)
 
     self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_prev) / 2.0
