@@ -18,11 +18,15 @@ PROFILE_GENTLE = 0
 PROFILE_NORMAL = 1
 PROFILE_SPORTY = 2
 
-# profile: (max decel the patch may request in m/s^2, buffer before the stop point in m)
+# profile: (max decel the patch may request in m/s^2,
+#           buffer before the stop point in m (negative = aim past the stop point),
+#           taper alpha (0 = constant decel, higher = more front-loaded, keep < 0.7),
+#           onset jerk limit in m/s^3 (how fast braking may build),
+#           release jerk limit in m/s^3 (how fast braking may ease off))
 STOP_PROFILES = {
-  PROFILE_GENTLE: (2.0, 3.0),
-  PROFILE_NORMAL: (3.0, 2.0),
-  PROFILE_SPORTY: (abs(ACCEL_MIN), 1.0),
+  PROFILE_GENTLE: (2.0, -1.0, 0.5, 3.0, 1.5),
+  PROFILE_NORMAL: (3.0, 0.5, 0.5, 4.0, 2.0),
+  PROFILE_SPORTY: (abs(ACCEL_MIN), 1.0, 0.3, 8.0, 3.0),
 }
 
 
@@ -32,10 +36,12 @@ class PlannedStopBraking:
     self._invalid_trajectory_logged = False
     self._held_distance: float | None = None
     self._hold_frames_left = 0
+    self._prev_accel: float | None = None
 
   def _reset(self) -> None:
     self._held_distance = None
     self._hold_frames_left = 0
+    self._prev_accel = None
 
   def update(self, model, v_ego: float, model_accel: float, planner_accel: float,
              enabled: bool, longitudinal_enabled: bool, has_lead: bool,
@@ -62,17 +68,34 @@ class PlannedStopBraking:
       self._reset()
       return planner_accel, False
 
-    max_decel, buffer = STOP_PROFILES.get(profile, STOP_PROFILES[PROFILE_NORMAL])
+    max_decel, buffer, alpha, onset_jerk, release_jerk = STOP_PROFILES.get(profile, STOP_PROFILES[PROFILE_NORMAL])
     max_decel = min(max_decel, abs(ACCEL_MIN))
 
+    # Front-loaded stop: decel ~ v^alpha. Same stopping distance as constant decel,
+    # but starts harder and tapers off so the stop ends softly.
     available_distance = stop_distance - buffer - v_ego * self.actuator_delay
-    if available_distance <= 0.0:
+    out_of_distance = available_distance <= 0.0
+    if out_of_distance:
       required_accel = -max_decel
     else:
-      required_accel = max(-(v_ego ** 2) / (2.0 * available_distance), -max_decel)
+      required_accel = max(-(v_ego ** 2) / ((2.0 - alpha) * available_distance), -max_decel)
 
     requested_accel = min(planner_accel, model_accel, required_accel)
-    return float(np.clip(requested_accel, ACCEL_MIN, ACCEL_MAX)), True
+
+    # Smooth brake onset and release. Skipped when we are out of distance so a late stop is never softened.
+    if self._prev_accel is None:
+      self._prev_accel = min(planner_accel, 0.0)
+    if not out_of_distance:
+      if requested_accel < self._prev_accel:
+        limited_accel = max(requested_accel, self._prev_accel - onset_jerk * DT_MDL)
+        # never brake less than the planner itself wants
+        requested_accel = min(limited_accel, planner_accel)
+      else:
+        requested_accel = min(requested_accel, self._prev_accel + release_jerk * DT_MDL)
+
+    requested_accel = float(np.clip(requested_accel, ACCEL_MIN, ACCEL_MAX))
+    self._prev_accel = requested_accel
+    return requested_accel, True
 
   def _infer_stop_distance(self, model) -> float | None:
     position = np.asarray(model.position.x, dtype=float)
@@ -111,3 +134,4 @@ class PlannedStopBraking:
         "PlannedStopBraking: invalid model position/velocity trajectory; skipping stop adjustment"
       )
       self._invalid_trajectory_logged = True
+
