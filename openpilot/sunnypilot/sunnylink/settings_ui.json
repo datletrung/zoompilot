@@ -738,6 +738,61 @@
                   "equals": true
                 }
               ]
+            },
+            {
+              "key": "PlannedLaunchBoost",
+              "widget": "toggle",
+              "needs_onroad_cycle": true,
+              "title": "Planned Launch Boost (Experimental)",
+              "description": "After the planner releases a stop request from near standstill, ramp launch acceleration only when the model predicts no slowdown or sharp curve. Any detected lead cancels the boost. Driver supervision remains required.",
+              "visibility": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ]
+            },
+            {
+              "key": "PlannedLaunchBoostProfile",
+              "widget": "multiple_button",
+              "needs_onroad_cycle": true,
+              "title": "Planned Launch Boost Profile",
+              "options": [
+                {
+                  "value": 0,
+                  "label": "Gentle"
+                },
+                {
+                  "value": 1,
+                  "label": "Normal"
+                },
+                {
+                  "value": 2,
+                  "label": "Sporty"
+                }
+              ],
+              "visibility": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "param",
+                  "key": "PlannedLaunchBoost",
+                  "equals": true
+                }
+              ]
             }
           ]
         },

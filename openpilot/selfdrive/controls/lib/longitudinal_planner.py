@@ -143,6 +143,15 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     if stop_estimated:
       if output_a_target < planner_a_target:
         self.mpc.source = LongitudinalPlanSource.e2e
+    planner_a_target = output_a_target
+    output_a_target, launch_boosted = self.planned_launch_boost.update(
+      sm['modelV2'], v_ego, output_a_target, self.params.get_bool("PlannedLaunchBoost"),
+      self.CP.openpilotLongitudinalControl,
+      sm['radarState'].leadOne.present or sm['radarState'].leadTwo.present,
+      self.output_should_stop,
+      self.params.get("PlannedLaunchBoostProfile", return_default=True))
+    if launch_boosted and output_a_target > planner_a_target:
+      self.mpc.source = LongitudinalPlanSource.e2e
     self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)
 
     self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_prev) / 2.0

@@ -17,6 +17,12 @@ from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.longcontrol import LongCtrlState
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner, LongitudinalPlanSource
+from openpilot.sunnypilot.selfdrive.controls.lib.planned_launch_boost import (
+  PlannedLaunchBoost,
+  PROFILE_GENTLE as LAUNCH_PROFILE_GENTLE,
+  PROFILE_NORMAL as LAUNCH_PROFILE_NORMAL,
+  PROFILE_SPORTY as LAUNCH_PROFILE_SPORTY,
+)
 from openpilot.sunnypilot.selfdrive.controls.lib.planned_stop_braking import PlannedStopBraking, PROFILE_SPORTY
 
 V_EGO = 20.0
@@ -207,3 +213,92 @@ class TestExperimentalGate(OpenpilotTestCase):
       adjusted, inferred_stop = planned_stop.update(model, v_ego, -0.5, -0.8, enabled, True, has_lead)
       assert adjusted == pytest.approx(-0.8)
       assert not inferred_stop
+
+
+class TestPlannedLaunchBoost(OpenpilotTestCase):
+  def _model(self, speed=0.0, yaw_rate=0.01):
+    model = messaging.new_message("modelV2").modelV2
+    model.velocity.x = [speed] * 33
+    model.orientationRate.z = [yaw_rate] * 33
+    return model
+
+  def test_boost_latches_when_stop_request_releases_near_standstill(self):
+    planned_launch = PlannedLaunchBoost()
+    model = self._model()
+
+    accel, boosted = planned_launch.update(model, 0.0, 0.1, True, True, False, True)
+    assert accel == pytest.approx(0.1)
+    assert not boosted
+
+    accel, boosted = planned_launch.update(model, 0.0, 0.1, True, True, False, False)
+    assert boosted
+    assert accel > 0.1
+    assert accel <= 1.6
+
+  def test_profile_caps_launch_acceleration(self):
+    for profile, expected_max in (
+      (LAUNCH_PROFILE_GENTLE, 1.2),
+      (LAUNCH_PROFILE_NORMAL, 1.6),
+      (LAUNCH_PROFILE_SPORTY, 2.0),
+    ):
+      planned_launch = PlannedLaunchBoost()
+      model = self._model()
+      planned_launch.update(model, 0.0, 0.1, True, True, False, True, profile)
+
+      for _ in range(60):
+        accel, boosted = planned_launch.update(model, 0.0, 0.1, True, True, False, False, profile)
+      assert boosted
+      assert accel == pytest.approx(expected_max)
+
+  def test_lead_or_model_slowdown_cancels_the_latched_boost(self):
+    planned_launch = PlannedLaunchBoost()
+    model = self._model()
+    planned_launch.update(model, 0.0, 0.1, True, True, False, True)
+    planned_launch.update(model, 0.0, 0.1, True, True, False, False)
+
+    accel, boosted = planned_launch.update(model, 0.0, 0.1, True, True, True, False)
+    assert accel == pytest.approx(0.1)
+    assert not boosted
+
+    planned_launch.update(model, 0.0, 0.1, True, True, False, True)
+    planned_launch.update(model, 0.0, 0.1, True, True, False, False)
+    slowdown_model = self._model()
+    velocity = [1.0] * 33
+    for i, t in enumerate(ModelConstants.T_IDXS):
+      if 1.5 <= t <= 5.0:
+        velocity[i] = 0.0
+    slowdown_model.velocity.x = velocity
+
+    accel, boosted = planned_launch.update(slowdown_model, 0.0, 0.1, True, True, False, False)
+    assert accel == pytest.approx(0.1)
+    assert not boosted
+
+  def test_boost_respects_planner_acceleration_and_speed_fade(self):
+    planned_launch = PlannedLaunchBoost()
+    model = self._model()
+    planned_launch.update(model, 0.0, 2.0, True, True, False, True)
+    accel, boosted = planned_launch.update(model, 0.0, 2.0, True, True, False, False)
+    assert accel == pytest.approx(2.0)
+    assert not boosted
+
+    planned_launch = PlannedLaunchBoost()
+    planned_launch.update(model, 0.0, 0.1, True, True, False, True)
+    planned_launch.update(model, 0.0, 0.1, True, True, False, False)
+    accel, boosted = planned_launch.update(model, 3.5, 0.1, True, True, False, False)
+    assert boosted
+    assert 0.1 < accel < 1.6
+
+  def test_boost_is_disabled_without_openpilot_long_or_after_timeout(self):
+    model = self._model()
+    planned_launch = PlannedLaunchBoost()
+    planned_launch.update(model, 0.0, 0.1, True, True, False, True)
+    accel, boosted = planned_launch.update(model, 0.0, 0.1, True, False, False, False)
+    assert accel == pytest.approx(0.1)
+    assert not boosted
+
+    planned_launch = PlannedLaunchBoost()
+    planned_launch.update(model, 0.0, 0.1, True, True, False, True)
+    for _ in range(81):
+      accel, boosted = planned_launch.update(model, 0.0, 0.1, True, True, False, False)
+    assert accel == pytest.approx(0.1)
+    assert not boosted

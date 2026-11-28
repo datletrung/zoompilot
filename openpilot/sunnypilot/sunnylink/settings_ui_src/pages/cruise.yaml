@@ -59,6 +59,32 @@ sections:
     - type: param
       key: PlannedStopBraking
       equals: true
+  - key: PlannedLaunchBoost
+    widget: toggle
+    needs_onroad_cycle: true
+    title: Planned Launch Boost (Experimental)
+    description: After the planner releases a stop request from near standstill, ramp launch acceleration only when the model predicts no slowdown or sharp curve. Any detected lead cancels the boost. Driver supervision remains required.
+    visibility:
+    - $ref: '#/macros/longitudinal'
+    enablement:
+    - $ref: '#/macros/longitudinal'
+  - key: PlannedLaunchBoostProfile
+    widget: multiple_button
+    needs_onroad_cycle: true
+    title: Planned Launch Boost Profile
+    options:
+    - value: 0
+      label: Gentle
+    - value: 1
+      label: Normal
+    - value: 2
+      label: Sporty
+    visibility:
+    - $ref: '#/macros/longitudinal'
+    enablement:
+    - type: param
+      key: PlannedLaunchBoost
+      equals: true
 - id: core_cruise_features
   title: ''
   description: ''

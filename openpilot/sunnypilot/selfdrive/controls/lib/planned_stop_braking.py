@@ -24,7 +24,7 @@ PROFILE_SPORTY = 2
 #           onset jerk limit in m/s^3 (how fast braking may build),
 #           release jerk limit in m/s^3 (how fast braking may ease off))
 STOP_PROFILES = {
-  PROFILE_GENTLE: (2.0, -1.0, 0.5, 3.0, 1.5),
+  PROFILE_GENTLE: (2.0, 0.0, 0.5, 3.0, 1.5),
   PROFILE_NORMAL: (3.0, 0.5, 0.5, 4.0, 2.0),
   PROFILE_SPORTY: (abs(ACCEL_MIN), 1.0, 0.3, 8.0, 3.0),
 }

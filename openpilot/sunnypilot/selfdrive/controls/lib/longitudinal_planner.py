@@ -32,6 +32,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist_
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_resolver import SpeedLimitResolver
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
 from openpilot.sunnypilot.models.helpers import get_active_bundle
+from openpilot.sunnypilot.selfdrive.controls.lib.planned_launch_boost import PlannedLaunchBoost
 from openpilot.sunnypilot.selfdrive.controls.lib.planned_stop_braking import PlannedStopBraking
 
 LongitudinalPlanSource = custom.LongitudinalPlanSP.LongitudinalPlanSource
@@ -63,6 +64,7 @@ class LongitudinalPlannerSP:
     self.sla_mirror = SpeedLimitAssistMirror(CP, CP_SP)
     self.sla = self._sla_owner(not CP_SP.pcmCruiseSpeed)
     self.params = Params()
+    self.planned_launch_boost = PlannedLaunchBoost()
     self.planned_stop_braking = PlannedStopBraking(CP.longitudinalActuatorDelay)
     self.generation = int(model_bundle.generation) if (model_bundle := get_active_bundle()) else None
     self.source = LongitudinalPlanSource.cruise
